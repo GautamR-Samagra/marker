@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     TEXIFY_DPI: int = 96 # DPI to render images at
     TEXIFY_BATCH_SIZE: int = 2 if TORCH_DEVICE_MODEL == "cpu" else 6 # Batch size for texify, lower on cpu due to float32
     TEXIFY_MODEL_NAME: str = "vikp/texify"
-
+    TABLE_DETECT : bool = True
     # Layout model
     BAD_SPAN_TYPES: List[str] = ["Caption", "Footnote", "Page-footer", "Page-header", "Picture"]
     LAYOUT_MODEL_MAX: int = 512

@@ -9,7 +9,11 @@ from marker.ocr.utils import detect_bad_ocr, font_flags_decomposer
 from marker.settings import settings
 from marker.schema import Span, Line, Block, Page
 from concurrent.futures import ThreadPoolExecutor
+from marker.cleaners.table_to_md import TableToMD
+import pandas as pd
+table_detect_flag  =  settings.TABLE_DETECT
 
+table_converter = TableToMD()
 os.environ["TESSDATA_PREFIX"] = settings.TESSDATA_PREFIX
 
 
@@ -28,6 +32,48 @@ def sort_rotated_text(page_blocks, tolerance=1.25):
         sorted_page_blocks.extend(sorted_group)
 
     return sorted_page_blocks
+
+
+def do_bboxes_intersect(bbox1, bbox2):
+
+    x_min1, y_min1, x_max1, y_max1 = bbox1
+    x_min2, y_min2, x_max2, y_max2 = bbox2
+
+    if x_max1 < x_min2 or x_max2 < x_min1:
+        return False
+    if y_max1 < y_min2 or y_max2 < y_min1:
+        return False
+
+    return True
+
+
+def create_block(pnum,span_id ,result_bbox,  md_format_string  ): 
+
+  span_obj = Span(
+      text=md_format_string,
+      bbox=result_bbox,  # Assuming you have a correct_rotation function and a page object
+      span_id=f"{span_id}",
+      font="Calibri_sans_proportional",  # Replace "YourFont_YourFlags" with actual font and flags or just the font name if flags are not needed
+      color=0,  # Replace "YourColor" with the actual color, if available
+      ascender=0.75,  # Replace "YourAscender" with the actual ascender value, if available
+      descender=-0.25,  # Replace "YourDescender" with the actual descender value, if available
+  )
+
+  line_obj = Line(
+    spans=[span_obj],  # List of one span
+    bbox=result_bbox,  # Same bbox as the span
+    )
+
+   # Step 3: Create a Block object with the Line
+  block_obj = Block(
+      lines=[line_obj],  # List of one line
+      bbox=result_bbox,  # Same bbox as the line and span
+      pnum=pnum,
+    )
+  return(block_obj)
+
+
+
 
 
 def get_single_page_blocks(doc, pnum: int, tess_lang: str, spellchecker: Optional[SpellChecker] = None, ocr=False) -> Tuple[List[Block], int]:
@@ -91,6 +137,26 @@ def convert_single_page(doc, pnum, tess_lang: str, spell_lang: Optional[str], no
         spellchecker = SpellChecker(language=spell_lang)
 
     blocks = get_single_page_blocks(doc, pnum, tess_lang, spellchecker)
+    
+    if table_detect_flag : 
+      
+      table_details = table_converter.extract_table(doc, pnum,tess_lang =tess_lang)
+      if not pd.isnull(table_details): 
+        result_bbox, md_format_string  = table_details
+        result_bbox = [result_bbox]
+        filt_block =  []
+        counter = 0
+        for block in blocks : 
+          if not do_bboxes_intersect(block.bbox,result_bbox[0] ) :
+            filt_block.append(block)
+          else : 
+            if counter == 0 :
+                table_block = create_block(pnum, block.lines[0].spans[0].span_id, result_bbox[0], md_format_string   )
+                filt_block.append(table_block)
+                counter ==1
+        blocks =  filt_block
+        
+    
     page_obj = Page(blocks=blocks, pnum=pnum, bbox=page_bbox)
 
     # OCR page if we got minimal text, or if we got too many spaces
